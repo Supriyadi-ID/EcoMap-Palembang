@@ -1,4 +1,9 @@
 {
+  "name": "ecomap-palembang",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node server.js"
+  },
   "dependencies": {
     "body-parser": "^2.3.0",
     "cors": "^2.8.6",

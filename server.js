@@ -12,7 +12,8 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, '')));
 
-const dataNewDir = path.join(__dirname, 'APP', 'DATA_NEW');
+// Vercel serverless environment menggunakan filesystem read-only, kecuali folder /tmp
+const dataNewDir = process.env.VERCEL ? path.join('/tmp', 'APP', 'DATA_NEW') : path.join(__dirname, 'APP', 'DATA_NEW');
 if (!fs.existsSync(dataNewDir)) {
     fs.mkdirSync(dataNewDir, { recursive: true });
 }
@@ -65,7 +66,12 @@ app.post('/api/save-edits', (req, res) => {
     }
 });
 
-app.listen(PORT, () => {
-    console.log(`Server berjalan di http://localhost:${PORT}`);
-    console.log(`Buka browser pada: http://localhost:${PORT}`);
-});
+// Export app untuk Vercel Serverless Function
+module.exports = app;
+
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`Server berjalan di http://localhost:${PORT}`);
+        console.log(`Buka browser pada: http://localhost:${PORT}`);
+    });
+}
