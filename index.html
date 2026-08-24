@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EcoMap Palembang - Peta Interaktif</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <link rel="stylesheet" href="CSS/style.css" />
+    
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    
+    <!-- MarkerCluster for Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
+    <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
+
+    <!-- Turf.js for geoprocessing -->
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+    <style>
+        /* Mencegah munculnya bounding box (focus ring) saat polygon diklik */
+        path.leaflet-interactive:focus {
+            outline: none !important;
+        }
+
+        /* Menyembunyikan label fasilitas sampai level zoom tertentu (diatur via JS class) */
+        .facility-label {
+            visibility: hidden;
+            opacity: 0;
+            background: rgba(255, 255, 255, 0.95);
+            border: 1px solid #9ca3af;
+            border-radius: 3px;
+            color: #374151;
+            padding: 1px 4px;
+            font-size: 9px;
+            white-space: nowrap;
+            z-index: 1000;
+        }
+
+        /* Animasi pulse untuk marker tujuan routing */
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.5); }
+            70% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col h-screen overflow-hidden text-gray-800">
+
+    <!-- Navigation Bar -->
+    <nav class="bg-emerald-700 text-white shadow-md z-20 flex-shrink-0">
+        <div class="w-full px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <i class="fa-solid fa-recycle text-2xl text-emerald-300 mr-2"></i>
+                    <span class="font-bold text-xl tracking-tight">EcoMap Palembang</span>
+                </div>
+                <div class="hidden md:flex items-center space-x-4">
+                    <button onclick="toggleModal('modal-feedback')" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-emerald-600 transition">Feedback</button>
+                    <button onclick="toggleModal('modal-sources')" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-emerald-600 transition">Sumber Data</button>
+                    <button onclick="toggleModal('modal-about')" class="px-3 py-2 rounded-md text-sm font-medium hover:bg-emerald-600 transition">Tentang Kami</button>
+                </div>
+                <!-- Mobile menu button -->
+                <div class="flex items-center md:hidden">
+                    <button id="mobile-menu-btn" onclick="document.getElementById('mobile-menu').classList.toggle('hidden')" class="text-emerald-200 hover:text-white focus:outline-none">
+                        <i class="fa-solid fa-bars text-2xl"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <!-- Mobile menu -->
+        <div id="mobile-menu" class="hidden md:hidden bg-emerald-800">
+            <button onclick="toggleModal('modal-feedback'); document.getElementById('mobile-menu').classList.add('hidden')" class="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-700">Feedback</button>
+            <button onclick="toggleModal('modal-sources'); document.getElementById('mobile-menu').classList.add('hidden')" class="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-700">Sumber Data</button>
+            <button onclick="toggleModal('modal-about'); document.getElementById('mobile-menu').classList.add('hidden')" class="block w-full text-left px-4 py-2 text-sm text-white hover:bg-emerald-700">Tentang Kami</button>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="flex-1 flex overflow-hidden">
+        
+        <!-- Sidebar -->
+        <aside class="w-80 bg-white border-r border-gray-200 flex flex-col shadow-lg z-10 transition-transform duration-300 transform -translate-x-full md:translate-x-0 absolute md:relative h-full" id="sidebar">
+            <div class="p-4 border-b border-gray-200 bg-emerald-50 flex justify-between items-center">
+                <h2 class="font-bold text-emerald-800">PANEL KONTROL</h2>
+                <button class="md:hidden text-gray-500 hover:text-gray-700" onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')">
+                    <i class="fa-solid fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                <!-- Info Section -->
+                <div>
+                    <p class="text-sm text-gray-600 text-justify">
+                        WebGIS ini menampilkan sebaran fasilitas pengelolaan limbah di Kota Palembang. Analisis buffer digunakan untuk melihat jangkauan layanan, sedangkan isokron digunakan untuk estimasi waktu tempuh.
+                    </p>
+                </div>
+                
+                <!-- Panel Base Maps & Administrative -->
+                <div class="mb-4">
+                    <h2 class="font-bold text-gray-700 border-b-2 border-emerald-500 pb-1 mb-2 uppercase text-[11px] tracking-wide flex items-center">
+                        Data Dasar Kota Palembang
+                    </h2>
+                    <div id="base-controls" class="space-y-2 text-sm">
+                        <div id="kecamatan-control-container"></div>
+                        <div id="pemukiman-control-container"></div>
+                    </div>
+                </div>
+
+                <!-- Layer Filter -->
+                <div class="mt-4">
+                    <h2 class="font-bold text-gray-700 border-b-2 border-emerald-500 pb-1 mb-2 uppercase text-[11px] tracking-wide flex items-center">Data Fasilitas Pengelolaan Sampah</h2>
+                    <div id="facility-controls" class="space-y-2 text-sm">
+                        <!-- Checkboxes will be injected here via JS -->
+                    </div>
+                </div>
+
+                <!-- Tambah/Ubah Data -->
+                <div class="mt-4">
+                    <h2 class="font-bold text-gray-700 border-b-2 border-emerald-500 pb-1 mb-2 uppercase text-[11px] tracking-wide flex items-center">Tambah/Ubah Data Fasilitas</h2>
+                    <div id="edit-controls" class="space-y-2 text-sm">
+                        <button onclick="startAddFacility()" class="w-full bg-emerald-100 text-emerald-700 py-1.5 rounded text-sm font-bold border border-emerald-300 hover:bg-emerald-200 transition shadow-sm">
+                            <i class="fa-solid fa-plus mr-1"></i> Tambah Data Baru
+                        </button>
+                        <button onclick="window.showUserEditsTable()" class="mt-2 w-full bg-blue-50 text-blue-600 py-1.5 rounded text-sm hover:bg-blue-100 transition border border-blue-200"><i class="fa-solid fa-table mr-1"></i> Data yang Ditambahkan</button>
+                          <button onclick="resetAllEdits()" class="mt-2 w-full bg-red-50 text-red-600 py-1.5 rounded text-sm hover:bg-red-100 transition border border-red-200">
+                            <i class="fa-solid fa-rotate-left mr-1"></i> Reset Perubahan
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Geoprocessing Controls -->
+                <div class="mt-4">
+                    <h2 class="font-bold text-gray-700 border-b-2 border-emerald-500 pb-1 mb-2 uppercase text-[11px] tracking-wide flex items-center">Analisis Spasial</h2>
+                    <div class="space-y-3">
+
+                        <!-- FITUR BARU: Routing ke Fasilitas Terdekat -->
+                        <div class="bg-blue-50 p-3 rounded-lg border border-blue-200">
+                            <label class="block text-xs font-semibold text-blue-800 mb-2">
+                                <i class="fa-solid fa-route mr-1"></i> Rute ke Fasilitas Terdekat
+                            </label>
+                            <p class="text-[10px] text-blue-600 mb-2 leading-tight">Cari rute jalan aktual dari lokasi Anda ke fasilitas pengelolaan sampah terdekat menggunakan data jalan OpenStreetMap.</p>
+                            
+                            <div class="mb-2">
+                                <label class="block text-[10px] text-gray-600 mb-1">Jenis Fasilitas Tujuan:</label>
+                                <select id="routing-facility-filter" class="w-full rounded border-gray-300 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 p-1.5 text-xs">
+                                    <option value="">-- Semua Fasilitas (yang aktif) --</option>
+                                </select>
+                            </div>
+                            
+                            <div class="flex space-x-2">
+                                <button onclick="routeFromMyLocation()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded text-xs font-medium transition flex items-center justify-center space-x-1 shadow-sm">
+                                    <i class="fa-solid fa-location-crosshairs"></i>
+                                    <span>Lokasi Saya</span>
+                                </button>
+                                <button onclick="startRoutingMode()" class="flex-1 bg-white hover:bg-blue-100 text-blue-700 py-1.5 rounded text-xs font-medium transition border border-blue-300 flex items-center justify-center space-x-1">
+                                    <i class="fa-solid fa-hand-pointer"></i>
+                                    <span>Klik Peta</span>
+                                </button>
+                            </div>
+
+                            <!-- Panel Hasil Routing -->
+                            <div id="routing-result-panel" class="mt-2 bg-white p-2 rounded shadow-sm border border-blue-100 hidden">
+                                <div class="flex justify-between items-center mb-1">
+                                    <span class="text-[10px] font-bold text-blue-800 uppercase tracking-wide">Hasil Routing</span>
+                                    <button onclick="clearRoutingLayers()" class="text-[10px] text-red-500 hover:text-red-700 font-medium">
+                                        <i class="fa-solid fa-xmark mr-0.5"></i>Hapus
+                                    </button>
+                                </div>
+                                <div id="routing-result-content"></div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <!-- Geoprocessing Panel -->
+                <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+                    <h3 class="font-bold text-emerald-800 text-sm mb-3 flex items-center"><i class="fa-solid fa-industry mr-2"></i>Analisis Kebutuhan Fasilitas</h3>
+                    
+                    <div class="space-y-3 text-sm">
+                        <div>
+                            <label class="block text-gray-700 mb-1">Pilih Kecamatan</label>
+                            <select id="kecamatan-select" class="w-full rounded border-gray-300 shadow-sm focus:border-emerald-300 focus:ring focus:ring-emerald-200 focus:ring-opacity-50 p-2 text-sm">
+                                <option value="">-- Pilih Kecamatan --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-gray-700 mb-1">Pilih Fasilitas</label>
+                            <select id="analysis-facility-select" class="w-full rounded border-gray-300 shadow-sm focus:border-emerald-300 focus:ring focus:ring-emerald-200 focus:ring-opacity-50 p-2 text-sm">
+                                <option value="TPS3R">TPS3R / UPS (3 km)</option>
+                                <option value="Bank Sampah">Bank Sampah Unit (1 km)</option>
+                                <option value="Rumah Kompos">Rumah Kompos (1 km)</option>
+                                <option value="Komposting">Unit Komposting Skala RT/RW (500 m)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="flex space-x-2 pt-2">
+                            <button id="btn-analyze" onclick="runFacilityNeedAnalysis()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2 px-2 rounded transition flex justify-center items-center">
+                                <i class="fa-solid fa-play mr-2"></i> Analisis
+                            </button>
+                            <button id="btn-clear" onclick="clearAnalysis()" class="hidden bg-gray-200 hover:bg-gray-300 text-gray-700 py-2 px-3 rounded transition" title="Bersihkan">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="summary-panel" class="mt-4 hidden bg-white p-3 rounded shadow-sm border border-emerald-100 text-xs">
+                        <div id="summary-content"></div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Map Area -->
+        <main class="flex-1 relative">
+            <button class="md:hidden absolute top-4 left-4 z-[400] bg-white p-2 rounded-md shadow-md text-gray-700" onclick="document.getElementById('sidebar').classList.toggle('-translate-x-full')">
+                <i class="fa-solid fa-bars"></i>
+            </button>
+            <div id="map" class="w-full h-full"></div>
+        </main>
+    </div>
+
+    <!-- Feedback Modal -->
+    <div id="modal-feedback" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 relative max-h-[90vh] overflow-y-auto">
+            <button onclick="toggleModal('modal-feedback')" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800"><i class="fa-solid fa-xmark text-2xl"></i></button>
+            <h2 class="text-2xl font-bold text-emerald-700 mb-4">Masukan & Saran</h2>
+            <form class="space-y-4" onsubmit="event.preventDefault(); alert('Terima kasih!'); toggleModal('modal-feedback');">
+                <input type="text" placeholder="Nama" class="w-full border p-2 rounded">
+                <textarea placeholder="Pesan Anda" class="w-full border p-2 rounded" rows="4"></textarea>
+                <button type="submit" class="bg-emerald-600 text-white px-6 py-2 rounded">Kirim</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Sources Modal -->
+    <div id="modal-sources" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 relative max-h-[90vh] overflow-y-auto">
+            <button onclick="toggleModal('modal-sources')" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800"><i class="fa-solid fa-xmark text-2xl"></i></button>
+            <h2 class="text-2xl font-bold text-emerald-700 mb-4"><i class="fa-solid fa-database mr-2"></i>Sumber Data</h2>
+            <div class="overflow-x-auto border rounded-lg">
+                <table class="min-w-full divide-y divide-gray-200 text-sm text-left">
+                    <thead class="bg-emerald-50">
+                        <tr>
+                            <th class="px-4 py-3 font-semibold text-emerald-800 w-1/3">Dataset</th>
+                            <th class="px-4 py-3 font-semibold text-emerald-800">Sumber Informasi / Referensi</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-200 text-gray-700">
+                        <tr><td class="px-4 py-2 font-medium">Batas Administrasi Kecamatan</td><td class="px-4 py-2">BIG, RBI skala 50.000 (<a href="https://tanahair.indonesia.go.id/" target="_blank" class="text-blue-600 hover:underline">INA-GEOPORTAL</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Area Pemukiman</td><td class="px-4 py-2">Google Building Footprint V3 (<a href="https://sites.research.google/gr/open-buildings/" target="_blank" class="text-blue-600 hover:underline">Google Research</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Bank Sampah Induk</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Bank Sampah</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">TPS3R / UPS</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">TPA / TPST</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Unit Komposting Skala RT/RW</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Rumah Kompos</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Biodigester</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Fasilitas Lain (Sektor Informal)</td><td class="px-4 py-2">Sistem Informasi Pengelolaan Sampah Nasional (<a href="https://sampahnasional.kemenlh.go.id/portal-indikatif/fasilitas/bank-sampah" target="_blank" class="text-blue-600 hover:underline">SIPSN KLHK</a>)</td></tr>
+                        <tr><td class="px-4 py-2 font-medium">Data Penduduk per Kecamatan</td><td class="px-4 py-2">Publikasi BPS, Kota Palembang Dalam Angka 2026 (<a href="https://palembangkota.bps.go.id/id/publication/2026/02/27/5d870e5799a00da9d29e5c99/kota-palembang-dalam-angka-2026.html" target="_blank" class="text-blue-600 hover:underline">BPS Palembang</a>)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- About Modal -->
+    <div id="modal-about" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 relative text-center">
+            <button onclick="toggleModal('modal-about')" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800"><i class="fa-solid fa-xmark text-2xl"></i></button>
+            <div class="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-4xl mx-auto mb-4 border-2 border-emerald-500">
+                <i class="fa-solid fa-user"></i>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-800 mb-1">Supriyadi</h2>
+            <p class="text-emerald-600 font-medium mb-4">GIS Analyst & Web Developer</p>
+            <p class="text-gray-600 text-sm mb-6">Proyek WebGIS ini disusun sebagai Final Project dalam program MAPID Bootcamp Batch 3.</p>
+            <div class="space-y-3 text-sm text-left">
+                <div class="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg"><i class="fa-solid fa-envelope text-emerald-600 w-5"></i><span>supriyadi.cartographer@gmail.com</span></div>
+                <div class="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg"><i class="fa-brands fa-linkedin text-emerald-600 w-5"></i><a href="https://www.linkedin.com/in/supriyadi-7b8678aa/" target="_blank" class="text-emerald-600 font-medium">LinkedIn Profile</a></div>
+                <div class="flex items-center space-x-3 bg-gray-50 p-3 rounded-lg"><i class="fa-brands fa-github text-emerald-600 w-5"></i><a href="https://github.com/Supriyadi-ID/EcoMap-Palembang" target="_blank" class="text-emerald-600 font-medium">Lihat Repositori Github</a></div>
+            </div>
+        </div>
+    </div>
+    <!-- User Edits Table Modal -->
+      <div id="modal-user-edits" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 hidden">
+          <div class="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 relative max-h-[90vh] flex flex-col">
+              <button onclick="toggleModal('modal-user-edits')" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800 z-10"><i class="fa-solid fa-xmark text-2xl"></i></button>
+              <div class="flex justify-between items-center mb-4 shrink-0 pr-8">
+                  <h2 class="text-2xl font-bold text-emerald-700"><i class="fa-solid fa-table mr-2"></i>Data yang Ditambahkan</h2>
+                  <button id="btn-delete-selected" onclick="window.deleteSelectedFacilities()" class="hidden bg-red-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-red-700 transition font-medium shadow-sm"><i class="fa-solid fa-trash mr-2"></i>Hapus (<span id="selected-count">0</span>)</button>
+              </div>
+              <div class="overflow-y-auto border rounded-lg flex-1 relative">
+                  <table class="min-w-full divide-y divide-gray-200 text-sm text-left">
+                      <thead class="bg-emerald-50 sticky top-0 z-10 shadow-sm">
+                          <tr>
+                              <th class="px-4 py-3 font-semibold text-emerald-800 w-12 text-center">
+                                  <input type="checkbox" id="chk-all-edits" onchange="window.toggleAllEdits(this.checked)" class="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer h-4 w-4">
+                              </th>
+                              <th class="px-4 py-3 font-semibold text-emerald-800">Nama Fasilitas</th>
+                              <th class="px-4 py-3 font-semibold text-emerald-800">Kategori</th>
+                              <th class="px-4 py-3 font-semibold text-emerald-800">Jenis</th>
+                              <th class="px-4 py-3 font-semibold text-emerald-800 w-32 text-center">Aksi</th>
+                          </tr>
+                      </thead>
+                      <tbody id="user-edits-tbody" class="divide-y divide-gray-200 text-gray-700">
+                      </tbody>
+                  </table>
+              </div>
+          </div>
+      </div>
+
+      <!-- Edit/Add Facility Modal -->
+    <div id="modal-edit-facility" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-[2000] flex items-center justify-center p-4 hidden">
+        <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 relative max-h-[90vh] overflow-y-auto">
+            <button onclick="toggleModal('modal-edit-facility'); window.isAddingFacility = false; map.getContainer().style.cursor = '';" class="absolute top-4 right-4 text-gray-500 hover:text-gray-800"><i class="fa-solid fa-xmark text-2xl"></i></button>
+            <h2 class="text-2xl font-bold text-emerald-700 mb-4" id="edit-modal-title"><i class="fa-solid fa-pen-to-square mr-2"></i>Edit Fasilitas</h2>
+            <form id="edit-facility-form" class="space-y-3" onsubmit="event.preventDefault(); saveFacility();">
+                <input type="hidden" id="edit-id">
+                <input type="hidden" id="edit-original-layer">
+                
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Kategori Fasilitas</label>
+                    <select id="edit-layer" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                        <!-- Options injected via JS -->
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Nama Fasilitas</label>
+                    <input type="text" id="edit-nama" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                </div>
+                <div id="jenis-container">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Jenis</label>
+                    <select id="edit-jenis" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                        <option value="">-- Pilih Jenis --</option>
+                        <option value="Pengepul">Pengepul</option>
+                        <option value="Lapak">Lapak</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Kecamatan</label>
+                    <select id="edit-kecamatan" class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                        <option value="">-- Pilih Kecamatan --</option>
+                        <option value="ALANG-ALANG LEBAR" class="capitalize">alang-alang lebar</option>
+                        <option value="BUKIT KECIL" class="capitalize">bukit kecil</option>
+                        <option value="GANDUS" class="capitalize">gandus</option>
+                        <option value="ILIR BARAT I" class="capitalize">ilir barat i</option>
+                        <option value="ILIR BARAT II" class="capitalize">ilir barat ii</option>
+                        <option value="ILIR TIMUR I" class="capitalize">ilir timur i</option>
+                        <option value="ILIR TIMUR II" class="capitalize">ilir timur ii</option>
+                        <option value="ILIR TIMUR III" class="capitalize">ilir timur iii</option>
+                        <option value="JAKABARING" class="capitalize">jakabaring</option>
+                        <option value="KALIDONI" class="capitalize">kalidoni</option>
+                        <option value="KEMUNING" class="capitalize">kemuning</option>
+                        <option value="KERTAPATI" class="capitalize">kertapati</option>
+                        <option value="PLAJU" class="capitalize">plaju</option>
+                        <option value="SAKO" class="capitalize">sako</option>
+                        <option value="SEBERANG ULU I" class="capitalize">seberang ulu i</option>
+                        <option value="SEBERANG ULU II" class="capitalize">seberang ulu ii</option>
+                        <option value="SEMATANG BORANG" class="capitalize">sematang borang</option>
+                        <option value="SUKARAMI" class="capitalize">sukarami</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status Operasional</label>
+                    <select id="edit-status" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm">
+                        <option value="Beroperasi">Beroperasi</option>
+                        <option value="Tidak Beroperasi">Tidak Beroperasi</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Latitude</label>
+                        <input type="number" step="any" id="edit-lat" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-gray-50">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Longitude</label>
+                        <input type="number" step="any" id="edit-lng" required class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-emerald-500 focus:border-emerald-500 text-sm bg-gray-50">
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3 pt-4 border-t">
+                    <button type="button" onclick="pickLocationOnMap()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-300 text-sm font-medium"><i class="fa-solid fa-location-crosshairs mr-1"></i>Pilih di Peta</button>
+                    <button type="submit" class="bg-emerald-600 text-white px-6 py-2 rounded-lg hover:bg-emerald-700 text-sm font-bold shadow">Simpan Data</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Instruction Overlay -->
+    <div id="instruction-overlay" class="fixed top-20 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full shadow-2xl z-[3000] hidden flex items-center space-x-3">
+        <i class="fa-solid fa-hand-pointer animate-bounce"></i>
+        <span class="font-medium">Klik lokasi pada peta untuk meletakkan fasilitas</span>
+        <button onclick="cancelPickLocation()" class="ml-4 bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-bold">Batal</button>
+    </div>
+
+    <!-- Routing Instruction Overlay -->
+    <div id="routing-instruction-overlay" class="fixed top-20 left-1/2 transform -translate-x-1/2 bg-blue-700 text-white px-6 py-3 rounded-full shadow-2xl z-[3000] hidden flex items-center space-x-3">
+        <i class="fa-solid fa-route animate-pulse"></i>
+        <span class="font-medium">Klik lokasi pada peta untuk mencari rute ke fasilitas terdekat</span>
+        <button onclick="cancelRoutingMode()" class="ml-4 bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-xs font-bold">Batal</button>
+    </div>
+
+    <!-- Script Aplikasi -->
+    <script src="JS/map.js"></script>
+    <script src="JS/api.js"></script>
+    <script src="JS/analysis.js"></script>
+    <script src="JS/routing.js"></script>
+    <script src="JS/ui.js"></script>
+    <script src="JS/crud.js"></script>
+    <script>
+        function toggleModal(modalId) {
+            document.getElementById(modalId).classList.toggle('hidden');
+        }
+    </script>
+<div class="hidden p-1 min-w-[240px] font-bold text-emerald-800 text-sm border-b pb-1 mb-2 w-full text-xs text-gray-700 text-gray-500 py-0.5 pr-2 w-20 align-top pr-1 w-2 capitalize text-red-600 text-emerald-600 mt-3 flex space-x-2 border-t pt-2 flex-1 bg-blue-50 text-blue-700 py-1 rounded border border-blue-200 hover:bg-blue-100 font-medium transition bg-red-50 text-red-700 border-red-200 hover:bg-red-100 bg-emerald-600 text-white bg-red-600 px-2 justify-between gap-2 border-gray-100 font-semibold w-1/3 p-2 min-w-[200px] text-lg bg-orange-50 border-orange-100 text-orange-700 text-orange-600 bg-yellow-100 border-yellow-400 text-yellow-800 items-center justify-center"></div>
+</body>
+</html>

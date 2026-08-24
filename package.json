@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "body-parser": "^2.3.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "playwright": "^1.62.1",
+    "puppeteer": "^25.8.0"
+  }
+}

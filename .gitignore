@@ -1,0 +1,72 @@
+# 1. Kredensial & Lingkungan
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# 2. Dependensi
+node_modules/
+vendor/
+dist/
+build/
+.cache/
+
+# 3. Data Geospasial Besar / Lokal
+*.tif
+*.tiff
+*.las
+*.laz
+*.mbtiles
+*.pmtiles
+*.shp
+*.shx
+*.dbf
+*.prj
+data/raw/
+data/large/
+
+# 4. Berkas Sistem & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# 5. Berkas Tambahan
+data.zip
+
+# 6. Folder AI
+.claude/
+.antigravity/
+
+# 7. Log
+logs/
+
+# 8. Folder Lainnya
+folder_rahasia/
+
+# 9. Folder Backup
+backup/
+
+# 10. Folder Temporary
+temp/
+APP/DATA_NEW/
+
+
+# 11. Folder Simulasi
+simulasi/
+
+# 12. Folder Tutorial
+tutorial/
+
+# 13. Folder Data Geospasial Mentah
+data_mentah/
+
+# 14. Script perbaikan lokal & patch
+fix_*.py
+add_*.py
+update_*.py
+*.patch
+fix*.js
+missing_part.js
+restored_part.js
